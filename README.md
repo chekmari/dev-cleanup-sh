@@ -80,6 +80,10 @@ The utility asks for confirmation before destructive cleanup actions. Project sc
 
 `Full Xcode/iOS cleanup` still runs each cleanup step with its own confirmation prompts.
 
+## License
+
+Released under the [MIT License](LICENSE).
+
 ## Requirements
 
 - macOS
