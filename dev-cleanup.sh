@@ -157,6 +157,23 @@ function human_kb() {
     }'
 }
 
+function format_du_kb_lines() {
+    awk -F '\t' '
+        function human(kb) {
+            if (kb >= 1048576) {
+                return sprintf("%.1fG", kb / 1048576)
+            }
+            if (kb >= 1024) {
+                return sprintf("%.1fM", kb / 1024)
+            }
+            return sprintf("%dK", kb)
+        }
+        NF >= 2 {
+            printf "%-8s %s\n", human($1), $2
+        }
+    '
+}
+
 function total_size_from_list() {
     local list="$1"
     local total_kb=0
@@ -407,6 +424,9 @@ function top_large_dirs() {
 
     echo
     target="$(ask_scan_root "Путь к проекту или папке")"
+    if [ "$target" != "/" ]; then
+        target="${target%/}"
+    fi
 
     if ! ensure_dir "$target"; then
         return
@@ -415,46 +435,79 @@ function top_large_dirs() {
     echo
     echo -e "${BOLD}Top 20 самых больших вложенных папок:${NC}"
     echo -e "${YELLOW}Сканирование может занять время на больших проектах.${NC}"
+    echo -e "${DIM}Технические папки считаются отдельно, чтобы общий список строился быстрее.${NC}"
     echo
 
     local all_tmp
     local tech_tmp
+    local first_tmp
     all_tmp="$(mktemp)"
     tech_tmp="$(mktemp)"
+    first_tmp="$(mktemp)"
 
     {
-        find "$target" \
-        \( -name ".git" -o -name "Pods" -o -name ".derivedData" -o -name "build" -o -name "DerivedData" -o -name "node_modules" -o -name ".gradle" \) \
-        -prune \
-        -exec du -sh {} + \
-        -o -type d \
-        ! -path "$target" \
-        -exec du -sh {} + 2>/dev/null \
-        | sort -hr \
-        | head -n 20 > "$all_tmp"
+        du -k \
+            -I ".git" \
+            -I "Pods" \
+            -I ".derivedData" \
+            -I "DerivedData" \
+            -I "build" \
+            -I "node_modules" \
+            -I ".gradle" \
+            "$target" 2>/dev/null \
+        | awk -F '\t' -v target="$target" 'NF >= 2 && $2 != target { print $1 "\t" $2 }' \
+        | sort -nr \
+        | head -n 20 \
+        | format_du_kb_lines > "$all_tmp"
     } &
     wait_with_spinner "$!" "Считаю размеры вложенных папок"
-    cat "$all_tmp"
+    if [ -s "$all_tmp" ]; then
+        cat "$all_tmp"
+    else
+        echo "Ничего не найдено."
+    fi
 
     echo
     echo -e "${BOLD}Top 20 технических папок:${NC}"
     {
         find "$target" \
-        -type d \
-        \( -name ".git" -o -name "Pods" -o -name ".derivedData" -o -name "build" -o -name "DerivedData" -o -name "node_modules" -o -name ".gradle" \) \
-        -prune \
-        -exec du -sh {} + 2>/dev/null \
-        | sort -hr \
-        | head -n 20 > "$tech_tmp"
+            -type d \
+            \( -name ".git" -o -name "Pods" -o -name ".derivedData" -o -name "build" -o -name "DerivedData" -o -name "node_modules" -o -name ".gradle" \) \
+            -prune \
+            -print0 2>/dev/null \
+        | while IFS= read -r -d '' path; do
+            du -sk "$path" 2>/dev/null || true
+        done \
+        | sort -nr \
+        | head -n 20 \
+        | format_du_kb_lines > "$tech_tmp"
     } &
     wait_with_spinner "$!" "Считаю размеры технических папок"
-    cat "$tech_tmp"
+    if [ -s "$tech_tmp" ]; then
+        cat "$tech_tmp"
+    else
+        echo "Ничего не найдено."
+    fi
 
     echo
     echo -e "${BOLD}Top 20 папок первого уровня:${NC}"
-    du -sh "$target"/* 2>/dev/null | sort -hr | head -n 20 || true
+    {
+        find "$target" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null \
+        | while IFS= read -r -d '' path; do
+            du -sk "$path" 2>/dev/null || true
+        done \
+        | sort -nr \
+        | head -n 20 \
+        | format_du_kb_lines > "$first_tmp"
+    } &
+    wait_with_spinner "$!" "Считаю размеры папок первого уровня"
+    if [ -s "$first_tmp" ]; then
+        cat "$first_tmp"
+    else
+        echo "Ничего не найдено."
+    fi
 
-    rm -f "$all_tmp" "$tech_tmp"
+    rm -f "$all_tmp" "$tech_tmp" "$first_tmp"
 }
 
 function show_sizes() {
