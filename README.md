@@ -4,6 +4,10 @@
 
 `dev-cleanup.sh` is an interactive cleanup utility for developer machines. It helps inspect disk usage and clean common local caches for Xcode/iOS, Docker, and Claude without assuming that projects live in one fixed directory.
 
+## Screenshots
+
+![Developer Cleanup Utility menu and Top 20 scan](assets/screenshots/menu-top20.png)
+
 ## Features
 
 - Structured terminal menu with sections for overview, Xcode/iOS, developer tools, and batch cleanup.

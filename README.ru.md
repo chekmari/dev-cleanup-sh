@@ -4,6 +4,10 @@
 
 `dev-cleanup.sh` - интерактивная утилита для очистки рабочей машины разработчика. Она помогает смотреть, что занимает место, и чистить типичные локальные кэши Xcode/iOS, Docker и Claude без привязки к одной фиксированной папке с проектами.
 
+## Скриншоты
+
+![Меню Developer Cleanup Utility и Top 20 scan](assets/screenshots/menu-top20.png)
+
 ## Возможности
 
 - Структурированное терминальное меню с разделами overview, Xcode/iOS, developer tools и batch cleanup.
