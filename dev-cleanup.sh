@@ -421,11 +421,19 @@ function claude_cleanup() {
 
 function top_large_dirs() {
     local target
+    local default_root
 
     echo
     target="$(ask_scan_root "Путь к проекту или папке")"
     if [ "$target" != "/" ]; then
         target="${target%/}"
+    fi
+
+    default_root="$(suggested_scan_root)"
+    if [ "$target" = "$HOME" ] && [ "$default_root" != "$HOME" ]; then
+        status_warn "~ слишком широкая папка для быстрого точного Top 20."
+        status_info "Сканирую $default_root. Для другой зоны укажите конкретную папку."
+        target="$default_root"
     fi
 
     if ! ensure_dir "$target"; then
@@ -438,9 +446,11 @@ function top_large_dirs() {
     echo -e "${DIM}Технические папки считаются отдельно, чтобы общий список строился быстрее.${NC}"
     echo
 
+    local du_tmp
     local all_tmp
     local tech_tmp
     local first_tmp
+    du_tmp="$(mktemp)"
     all_tmp="$(mktemp)"
     tech_tmp="$(mktemp)"
     first_tmp="$(mktemp)"
@@ -451,16 +461,27 @@ function top_large_dirs() {
             -I "Pods" \
             -I ".derivedData" \
             -I "DerivedData" \
+            -I "*derivedData*" \
+            -I "*DerivedData*" \
+            -I "*derived-data*" \
             -I "build" \
+            -I ".build" \
+            -I ".swiftpm" \
             -I "node_modules" \
             -I ".gradle" \
-            "$target" 2>/dev/null \
-        | awk -F '\t' -v target="$target" 'NF >= 2 && $2 != target { print $1 "\t" $2 }' \
+            -I ".venv" \
+            -I "venv" \
+            "$target" > "$du_tmp" 2>/dev/null
+    } &
+    wait_with_spinner "$!" "Считаю размеры вложенных папок"
+
+    {
+        set +o pipefail
+        awk -F '\t' -v target="$target" 'NF >= 2 && $2 != target { print $1 "\t" $2 }' "$du_tmp" \
         | sort -nr \
         | head -n 20 \
         | format_du_kb_lines > "$all_tmp"
-    } &
-    wait_with_spinner "$!" "Считаю размеры вложенных папок"
+    }
     if [ -s "$all_tmp" ]; then
         cat "$all_tmp"
     else
@@ -470,9 +491,10 @@ function top_large_dirs() {
     echo
     echo -e "${BOLD}Top 20 технических папок:${NC}"
     {
+        set +o pipefail
         find "$target" \
             -type d \
-            \( -name ".git" -o -name "Pods" -o -name ".derivedData" -o -name "build" -o -name "DerivedData" -o -name "node_modules" -o -name ".gradle" \) \
+            \( -name ".git" -o -name "Pods" -o -name ".derivedData" -o -name "DerivedData" -o -name "*derivedData*" -o -name "*DerivedData*" -o -name "*derived-data*" -o -name "build" -o -name ".build" -o -name ".swiftpm" -o -name "node_modules" -o -name ".gradle" -o -name ".venv" -o -name "venv" \) \
             -prune \
             -print0 2>/dev/null \
         | while IFS= read -r -d '' path; do
@@ -490,24 +512,31 @@ function top_large_dirs() {
     fi
 
     echo
-    echo -e "${BOLD}Top 20 папок первого уровня:${NC}"
+    echo -e "${BOLD}Top 20 папок первого уровня без технических папок:${NC}"
     {
-        find "$target" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null \
-        | while IFS= read -r -d '' path; do
-            du -sk "$path" 2>/dev/null || true
-        done \
+        set +o pipefail
+        awk -F '\t' -v target="$target" '
+            NF >= 2 && $2 != target {
+                prefix = target "/"
+                if (index($2, prefix) == 1) {
+                    rel = substr($2, length(prefix) + 1)
+                    if (rel != "" && rel !~ /\//) {
+                        print $1 "\t" $2
+                    }
+                }
+            }
+        ' "$du_tmp" \
         | sort -nr \
         | head -n 20 \
         | format_du_kb_lines > "$first_tmp"
-    } &
-    wait_with_spinner "$!" "Считаю размеры папок первого уровня"
+    }
     if [ -s "$first_tmp" ]; then
         cat "$first_tmp"
     else
         echo "Ничего не найдено."
     fi
 
-    rm -f "$all_tmp" "$tech_tmp" "$first_tmp"
+    rm -f "$du_tmp" "$all_tmp" "$tech_tmp" "$first_tmp"
 }
 
 function show_sizes() {
